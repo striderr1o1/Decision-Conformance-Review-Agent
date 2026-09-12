@@ -31,6 +31,7 @@ ALLOWED_TOOLS = "Read,Grep,Glob"
 
 
 class EngineError(RuntimeError):
+    error: str
     pass
 
 

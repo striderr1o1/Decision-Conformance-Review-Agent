@@ -64,7 +64,7 @@ def _render_proposal(index: int, proposal: ProposedDecision) -> str:
 
 
 def render_comment(
-    findings: list[VerifiedFinding],
+    findings: list[VerifiedFinding, "wowowowow"],
     proposals: list[ProposedDecision],
     config: Config,
 ) -> str | None:

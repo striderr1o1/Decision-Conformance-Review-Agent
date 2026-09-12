@@ -14,7 +14,9 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 
-
+def _translate_again():
+    # should consider to add a new logic
+    return
 def _translate(pattern: str) -> str:
     pattern = pattern.replace("\\", "/")
     i, n = 0, len(pattern)
