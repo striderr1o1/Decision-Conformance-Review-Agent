@@ -15,6 +15,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+def describe_range(base: str, head: str) -> str:
+    """Human-readable label for the range under review. Note this is only a
+    display string -- it never becomes a git argument."""
+    return f"{base}..{head}"
+
+
 class GitError(RuntimeError):
     pass
 
@@ -126,12 +132,12 @@ def get_diff_context(
 
     diff = _run_git(
         repo_root,
-        ["diff", f"{resolved_base}...{resolved_head}", "--"],
+        ["diff", f"{resolved_base}..{resolved_head}", "--"],
     )
 
     changed_output = _run_git(
         repo_root,
-        ["diff", "--name-only", f"{resolved_base}...{resolved_head}", "--"],
+        ["diff", "--name-only", f"{resolved_base}..{resolved_head}", "--"],
     )
     changed_files = [line for line in changed_output.splitlines() if line.strip()]
 

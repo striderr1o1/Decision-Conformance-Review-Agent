@@ -68,7 +68,7 @@ def render_comment(
     proposals: list[ProposedDecision],
     config: Config,
 ) -> str | None:
-    upheld = [f for f in findings if f.upheld and config.meets_threshold(f.severity)]
+    upheld = [f for f in findings if config.meets_threshold(f.severity)]
     show_proposals = config.propose_decisions and proposals
 
     if not upheld and not show_proposals:
