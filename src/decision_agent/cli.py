@@ -58,11 +58,13 @@ def main() -> None:
     is_flag=True,
     help="Like --explain, but also print the full prompt text sent to each stage (verbose; implies --explain).",
 )
+@click.option("--token", default=None, help="Engine credential, if you would rather not export an env var.")
 @click.option("--pr", "pr_number", default=None, type=int, help="Pull request number (default: resolved from GITHUB_REF or `gh pr view`). Ignored with --dry-run.")
 def review(
     base: str | None,
     head: str | None,
     repo_root: str,
+    token: str | None,
     config_path: str | None,
     dry_run: bool,
     stub: bool,
@@ -74,7 +76,7 @@ def review(
     root = Path(repo_root).resolve()
     cfg = load_config(repo_root=root, path=Path(config_path) if config_path else None)
 
-    engine = StubEngine() if stub else ClaudeEngine(cfg, repo_root=root)
+    engine = StubEngine() if stub else ClaudeEngine(cfg, repo_root=root, token=token)
 
     try:
         result = run_pipeline(cfg, engine, root, base=base, head=head)
