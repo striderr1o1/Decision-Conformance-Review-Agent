@@ -13,6 +13,8 @@ from decision_agent.schema import ProposedDecision, VerifiedFinding
 MARKER = "<!-- decision-agent:v1 -->"
 
 SEVERITY_ORDER = ["high", "medium", "low"]
+# Longest claim we will render inline before the layout suffers.
+MAX_CLAIM_CHARS = 400
 SEVERITY_LABELS = {"high": "🔴 High", "medium": "🟡 Medium", "low": "⚪ Low"}
 
 
