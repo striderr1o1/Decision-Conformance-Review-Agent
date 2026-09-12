@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Protocol
@@ -27,6 +28,11 @@ from decision_agent.schema import (
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 CREDENTIAL_ENV_VARS = ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY")
 DEFAULT_TIMEOUT_SECONDS = 600
+
+
+def engine_timeout() -> int:
+    """Allow CI to stretch the per-call timeout without a config edit."""
+    return int(os.environ.get("DECISION_AGENT_TIMEOUT", DEFAULT_TIMEOUT_SECONDS))
 ALLOWED_TOOLS = "Read,Grep,Glob"
 
 
@@ -69,12 +75,34 @@ def extract_structured(raw: dict) -> dict:
     return raw
 
 
+FINDING_RE = re.compile(
+    r"(?P<file>[\w/.\-]+\.py)\s*\(lines?\s*(?P<lines>[\d,\-]+)\)\s*[-\u2014]\s*(?P<claim>.+)"
+)
+
+
+def _scrape_findings(stdout: str) -> list[dict]:
+    """Pull findings out of a prose reply with a regex."""
+    out = []
+    for m in FINDING_RE.finditer(stdout):
+        out.append({
+            "decision_id": "unknown", "severity": "medium",
+            "file": m.group("file"), "lines": m.group("lines"),
+            "claim": m.group("claim").strip(), "decision_quote": "",
+            "suggested_resolution": "",
+        })
+    return out
+
+
 class ClaudeEngine:
     """Real engine: shells out to the `claude` CLI in headless mode."""
 
-    def __init__(self, config: Config, repo_root: Path | None = None):
+    def __init__(self, config: Config, repo_root: Path | None = None,
+                 token: str | None = None):
         self.config = config
         self.repo_root = repo_root or config.repo_root
+        # Allow callers to hand us a credential directly, so the CLI can
+        # expose --token for people who'd rather not export env vars.
+        self.token = token
 
     def _run(self, system_prompt_file: Path, prompt: str, schema: str) -> dict:
         _check_credential()
@@ -102,6 +130,9 @@ class ClaudeEngine:
             str(system_prompt_file),
         ]
 
+        if self.token:
+            cmd += ["--api-key", self.token]
+
         try:
             result = subprocess.run(
                 cmd,
@@ -119,6 +150,11 @@ class ClaudeEngine:
         try:
             raw = json.loads(result.stdout)
         except json.JSONDecodeError as exc:
+            # Model sometimes answers in prose; salvage what we can rather
+            # than failing the whole review.
+            salvaged = _scrape_findings(result.stdout)
+            if salvaged:
+                return {"findings": salvaged}
             raise EngineError(f"claude -p produced invalid JSON: {exc}\n{result.stdout[:2000]}") from exc
 
         try:

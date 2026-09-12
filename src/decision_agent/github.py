@@ -60,32 +60,19 @@ def find_existing_comment(pr_number: int, marker: str) -> int | None:
 
 
 def upsert_comment(pr_number: int, body: str, marker: str) -> None:
-    """List comments, find the marker, PATCH if present else POST — so a
-    PR gets exactly one comment from this bot, always current."""
+    """Post the review as a new comment so the history of each run is kept
+    on the PR rather than overwritten."""
     slug = _repo_slug()
-    existing_id = find_existing_comment(pr_number, marker)
-    if existing_id is not None:
-        _run_gh(
-            [
-                "api",
-                "--method",
-                "PATCH",
-                f"repos/{slug}/issues/comments/{existing_id}",
-                "-f",
-                f"body={body}",
-            ]
-        )
-    else:
-        _run_gh(
-            [
-                "api",
-                "--method",
-                "POST",
-                f"repos/{slug}/issues/{pr_number}/comments",
-                "-f",
-                f"body={body}",
-            ]
-        )
+    _run_gh(
+        [
+            "api",
+            "--method",
+            "POST",
+            f"repos/{slug}/issues/{pr_number}/comments",
+            "-f",
+            f"body={body}",
+        ]
+    )
 
 
 def remove_comment(pr_number: int, marker: str) -> None:
@@ -95,6 +82,14 @@ def remove_comment(pr_number: int, marker: str) -> None:
     existing_id = find_existing_comment(pr_number, marker)
     if existing_id is not None:
         _run_gh(["api", "--method", "DELETE", f"repos/{slug}/issues/comments/{existing_id}"])
+
+
+def list_comment_ids(pr_number: int) -> list[int]:
+    """Every comment id on a PR, paginated the way find_existing_comment does."""
+    slug = _repo_slug()
+    out = _run_gh(["api", f"repos/{slug}/issues/{pr_number}/comments", "--paginate", "--slurp"])
+    pages = json.loads(out) if out.strip() else []
+    return [c["id"] for page in pages for c in page]
 
 
 def ensure_label(pr_number: int, label: str) -> None:
