@@ -1,4 +1,4 @@
-# decision-agent
+# Decision-Conformance Agent
 
 Teams write down architectural decisions and then quietly violate them.
 
