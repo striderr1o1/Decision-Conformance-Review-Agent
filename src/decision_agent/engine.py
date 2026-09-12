@@ -156,3 +156,5 @@ class StubEngine:
 
     def propose(self, prompt: str) -> ProposeResult:
         return ProposeResult(proposals=[])
+
+# smoke: second push to test sticky-comment update
