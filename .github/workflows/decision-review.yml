@@ -28,7 +28,13 @@ jobs:
 
       - run: npm install -g @anthropic-ai/claude-code
 
-      - run: decision-agent review
+      # --explain writes the pipeline's reasoning (ref resolution, ignore-filter
+      # drops, per-decision selection, review candidates, verify uphold/drop,
+      # and findings hidden by the severity threshold) to stderr, which lands in
+      # this step's log. That way a run that posts no comment can still be
+      # checked here to confirm it genuinely reviewed the diff and found
+      # nothing, rather than having silently selected zero decisions.
+      - run: decision-agent review --explain
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
