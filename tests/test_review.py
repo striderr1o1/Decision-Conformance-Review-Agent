@@ -10,9 +10,11 @@ import pytest
 
 from decision_agent.config import Config
 from decision_agent.review import (
+    _diff_file_path,
     build_review_prompt,
     chunk_diff,
     run_pipeline,
+    strip_ignored_files,
 )
 from decision_agent.schema import (
     Finding,
@@ -101,6 +103,131 @@ def test_chunk_diff_splits_on_file_boundaries_when_large() -> None:
     assert "a.py" in chunks[0]
     assert "b.py" in chunks[1]
     assert "".join(chunks) == diff
+
+
+def test_strip_ignored_files_drops_whole_matching_section() -> None:
+    kept = "diff --git a/src/app.py b/src/app.py\n+x = 1\n"
+    ignored = "diff --git a/poetry.lock b/poetry.lock\n+aaaaaaaaaaaaaaaaaaaaaaaa\n"
+    diff = kept + ignored
+
+    result = strip_ignored_files(diff, ["**/*.lock"])
+
+    assert "poetry.lock" not in result
+    assert "aaaaaaaaaaaaaaaaaaaaaaaa" not in result
+    assert "src/app.py" in result
+    assert "x = 1" in result
+
+
+def test_strip_ignored_files_noop_without_patterns() -> None:
+    diff = "diff --git a/poetry.lock b/poetry.lock\n+x\n"
+    assert strip_ignored_files(diff, []) == diff
+
+
+def test_strip_ignored_files_uses_plus_plus_plus_line_not_ambiguous_header() -> None:
+    """A path with a space makes the `diff --git a/<p> b/<p>` header line
+    ambiguous to split; the `+++ b/<path>` line is unambiguous and must be
+    preferred."""
+    diff = (
+        "diff --git a/dist/my app.min.js b/dist/my app.min.js\n"
+        "--- a/dist/my app.min.js\n"
+        "+++ b/dist/my app.min.js\n"
+        "+minified\n"
+    )
+    result = strip_ignored_files(diff, ["dist/**", "**/*.min.js"])
+    assert "minified" not in result
+    assert result == ""
+
+
+def test_diff_file_path_ignores_added_line_that_looks_like_a_plus_plus_plus_header() -> None:
+    """A hunk can add a line whose own content happens to start with `++`,
+    which renders as `+++ ...` — indistinguishable by prefix alone from the
+    real `+++ b/<path>` header. Only the lines before the first `@@` hunk
+    marker are metadata; anything after is hunk content and must be
+    ignored when hunting for the path."""
+    diff = (
+        "diff --git a/poetry.lock b/poetry.lock\n"
+        "index 111..222 100644\n"
+        "--- a/poetry.lock\n"
+        "+++ b/poetry.lock\n"
+        "@@ -1,1 +1,2 @@\n"
+        " existing\n"
+        "+++ b/src/app.py\n"  # content line, not a header
+        "+SECRET_LOCKFILE_CONTENT\n"
+    )
+    assert _diff_file_path(diff) == "poetry.lock"
+
+
+def test_diff_file_path_ignores_removed_line_that_looks_like_a_dash_dash_dash_header() -> None:
+    """Mirror case: a removed line whose own content starts with `--`
+    renders as `--- ...` and must likewise be ignored once past the first
+    hunk marker.
+
+    This only exercises `minus_path` if the candidate loop would otherwise
+    reach it — which requires `plus_path` to be absent or `/dev/null`, i.e.
+    a deleted file. A diff with a normal `+++ b/<path>` header would return
+    from `plus_path` before `minus_path` is ever consulted, making the
+    planted content line inert either way."""
+    diff = (
+        "diff --git a/poetry.lock b/poetry.lock\n"
+        "deleted file mode 100644\n"
+        "index 111..000\n"
+        "--- a/poetry.lock\n"
+        "+++ /dev/null\n"
+        "@@ -1,2 +0,0 @@\n"
+        "-keep\n"
+        "--- b/src/app.py\n"  # content line, not a header
+        "-SECRET_LOCK\n"
+    )
+    assert _diff_file_path(diff) == "poetry.lock"
+
+    result = strip_ignored_files(diff, ["**/*.lock"])
+    assert "SECRET_LOCK" not in result
+
+
+def test_strip_ignored_files_not_fooled_by_content_line_matching_header_shape() -> None:
+    """End-to-end version of the two tests above: the ignored lockfile
+    section must actually be removed, not misattributed to src/app.py and
+    kept."""
+    diff = (
+        "diff --git a/poetry.lock b/poetry.lock\n"
+        "index 111..222 100644\n"
+        "--- a/poetry.lock\n"
+        "+++ b/poetry.lock\n"
+        "@@ -1,1 +1,2 @@\n"
+        " existing\n"
+        "+++ b/src/app.py\n"
+        "+SECRET_LOCKFILE_CONTENT\n"
+    )
+    result = strip_ignored_files(diff, ["**/*.lock"])
+    assert "SECRET_LOCKFILE_CONTENT" not in result
+    assert result == ""
+
+
+def test_pipeline_strips_ignored_files_from_diff_sent_to_engine(
+    repo_with_decision: Path,
+) -> None:
+    """`ignore_paths` must strip the lockfile's contents out of the diff
+    handed to the engine, not just drop it from the changed-files list used
+    for scope selection."""
+    _git(repo_with_decision, "checkout", "-q", "-b", "feature")
+    src_dir = repo_with_decision / "src"
+    src_dir.mkdir()
+    (src_dir / "service.py").write_text("import requests\nrequests.get('http://x')\n")
+    (repo_with_decision / "poetry.lock").write_text("lockfile-secret-marker\n" * 5)
+    _git(repo_with_decision, "add", "-A")
+    _git(repo_with_decision, "commit", "-q", "-m", "change plus lockfile")
+
+    engine = FakeEngine()
+    cfg = Config(repo_root=repo_with_decision, propose_decisions=False)
+
+    result = run_pipeline(cfg, engine, repo_with_decision, base="main", head="feature")
+
+    assert "poetry.lock" not in result.diff_context.diff
+    assert "lockfile-secret-marker" not in result.diff_context.diff
+    assert "poetry.lock" not in result.diff_context.changed_files
+    assert "src/service.py" in result.diff_context.changed_files
+    assert len(engine.review_calls) == 1
+    assert "lockfile-secret-marker" not in engine.review_calls[0]
 
 
 def test_build_review_prompt_includes_decision_and_diff(tmp_path: Path) -> None:

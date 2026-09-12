@@ -46,6 +46,12 @@ def test_extract_structured_without_result_key_passthrough() -> None:
     assert extract_structured(raw) == {"findings": []}
 
 
+def test_extract_structured_raises_on_non_json_result_string() -> None:
+    raw = {"type": "result", "result": "not schema json, just prose"}
+    with pytest.raises(json.JSONDecodeError):
+        extract_structured(raw)
+
+
 def test_review_raises_without_credential(tmp_path: Path) -> None:
     cfg = Config(repo_root=tmp_path)
     engine = ClaudeEngine(cfg, repo_root=tmp_path)
@@ -76,6 +82,30 @@ def test_review_raises_on_invalid_json(tmp_path: Path, monkeypatch: pytest.Monke
 
     with pytest.raises(EngineError):
         engine.review("some prompt")
+
+
+def test_review_raises_engine_error_when_result_is_prose_not_schema_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The outer envelope is valid JSON (json.loads(result.stdout) succeeds)
+    but `result` itself is prose, not schema-conforming JSON — so the
+    second, inner `json.loads` inside `extract_structured` is the one that
+    fails. That must still surface as EngineError, not a raw
+    JSONDecodeError, or cli.py's narrow except clause lets it escape as an
+    unhandled traceback."""
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "fake-token")
+    envelope = json.dumps(
+        {"type": "result", "result": "Sure, here are my thoughts on the diff: looks fine!"}
+    )
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _fake_completed(envelope))
+
+    cfg = Config(repo_root=tmp_path)
+    engine = ClaudeEngine(cfg, repo_root=tmp_path)
+
+    with pytest.raises(EngineError) as exc_info:
+        engine.review("some prompt")
+
+    assert "looks fine" in str(exc_info.value)
 
 
 def test_review_parses_successful_envelope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

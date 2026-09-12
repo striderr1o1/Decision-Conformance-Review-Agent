@@ -44,8 +44,15 @@ def _repo_slug() -> str:
 
 def find_existing_comment(pr_number: int, marker: str) -> int | None:
     slug = _repo_slug()
-    out = _run_gh(["api", f"repos/{slug}/issues/{pr_number}/comments", "--paginate"])
-    comments = json.loads(out) if out.strip() else []
+    # `--paginate` alone concatenates each page's JSON array back to back
+    # (`[...][...]`), which isn't valid JSON and blows up `json.loads` on
+    # any PR with a second page (30+ comments). `--slurp` wraps the pages
+    # in one outer array instead, so flatten that one level.
+    out = _run_gh(
+        ["api", f"repos/{slug}/issues/{pr_number}/comments", "--paginate", "--slurp"]
+    )
+    pages = json.loads(out) if out.strip() else []
+    comments = [comment for page in pages for comment in page]
     for comment in comments:
         if marker in comment.get("body", ""):
             return comment["id"]

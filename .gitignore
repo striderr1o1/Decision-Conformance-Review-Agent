@@ -1,3 +1,8 @@
+# Local credentials — never commit. Holds CLAUDE_CODE_OAUTH_TOKEN for local
+# runs; CI gets the same value from a repo secret instead.
+.decision-agent.env
+.env
+
 __pycache__/
 *.pyc
 *.egg-info/

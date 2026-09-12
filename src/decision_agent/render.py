@@ -16,13 +16,39 @@ SEVERITY_ORDER = ["high", "medium", "low"]
 SEVERITY_LABELS = {"high": "🔴 High", "medium": "🟡 Medium", "low": "⚪ Low"}
 
 
+def _indent_blockquote(text: str) -> str:
+    """Prefix every line of `text` with the list-indent + blockquote marker.
+
+    `decision_quote` is copied verbatim from a decision file, and those
+    bodies are hard-wrapped markdown, so it is routinely multi-line. Without
+    per-line prefixing, only the first line carries the `>` and the 2-space
+    list indent — every following line starts at column 0, which in GitHub
+    markdown ends both the blockquote and the enclosing list item. A blank
+    line inside the quote becomes a bare `>` (not an empty line) so the
+    blockquote stays one blockquote instead of splitting into two.
+    """
+    return "\n".join(f"  > {line}" if line else "  >" for line in text.split("\n"))
+
+
+def _indent_continuation(text: str) -> str:
+    """Prefix continuation lines of inline list-item text with the 2-space
+    list indent, leaving the first line untouched (it follows other text on
+    the same source line). `claim` and `suggested_resolution` come from
+    model output and may contain newlines; any continuation line without the
+    indent breaks out of the list item the same way an unprefixed quote line
+    does.
+    """
+    lines = text.split("\n")
+    return "\n".join([lines[0]] + [f"  {line}" if line else "" for line in lines[1:]])
+
+
 def _render_finding(finding: VerifiedFinding) -> str:
     return (
-        f"- **{finding.file}** (lines {finding.lines}) — {finding.claim}\n"
-        f"  > {finding.decision_quote}\n"
+        f"- **{finding.file}** (lines {finding.lines}) — {_indent_continuation(finding.claim)}\n"
+        f"{_indent_blockquote(finding.decision_quote)}\n"
         f"  \n"
         f"  Cites decision `{finding.decision_id}`. "
-        f"**Suggested resolution:** {finding.suggested_resolution}"
+        f"**Suggested resolution:** {_indent_continuation(finding.suggested_resolution)}"
     )
 
 

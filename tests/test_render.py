@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from decision_agent.config import Config
-from decision_agent.render import MARKER, render_comment
+from decision_agent.render import MARKER, _render_finding, render_comment
 from decision_agent.schema import ProposedDecision, VerifiedFinding
 
 
@@ -92,3 +92,74 @@ def test_proposals_suppressed_when_propose_decisions_false() -> None:
     )
     cfg = make_config(propose_decisions=False)
     assert render_comment([], [proposal], cfg) is None
+
+
+def test_multiline_decision_quote_every_line_blockquoted() -> None:
+    # decision_quote is copied verbatim from hard-wrapped decision files, so
+    # it is routinely multi-line. Every line must carry the "  > " prefix or
+    # the blockquote (and the enclosing list item) breaks after line one.
+    finding = make_finding(decision_quote="Line one\nline two\nline three.")
+    cfg = make_config(severity_threshold="low")
+    body = render_comment([finding], [], cfg)
+
+    assert body is not None
+    for line in ("Line one", "line two", "line three."):
+        assert f"  > {line}" in body
+
+
+def test_multiline_claim_continuation_lines_indented() -> None:
+    # claim is model output and may contain newlines; a continuation line
+    # without the 2-space list indent breaks out of the list item.
+    finding = make_finding(claim="first line of claim\nsecond line of claim")
+    cfg = make_config(severity_threshold="low")
+    body = render_comment([finding], [], cfg)
+
+    assert body is not None
+    assert "— first line of claim" in body
+    assert "  second line of claim" in body
+
+
+def test_multiline_suggested_resolution_continuation_lines_indented() -> None:
+    finding = make_finding(
+        suggested_resolution="first line of resolution\nsecond line of resolution"
+    )
+    cfg = make_config(severity_threshold="low")
+    body = render_comment([finding], [], cfg)
+
+    assert body is not None
+    assert "**Suggested resolution:** first line of resolution" in body
+    assert "  second line of resolution" in body
+
+
+def test_quote_with_blank_line_stays_one_blockquote() -> None:
+    # A blank line inside the quote must render as a bare ">" so the
+    # blockquote continues, rather than as an empty line that would end it.
+    finding = make_finding(decision_quote="Paragraph one.\n\nParagraph two.")
+    cfg = make_config(severity_threshold="low")
+    body = render_comment([finding], [], cfg)
+
+    assert body is not None
+    assert "  >\n" in body
+    # no bare empty line sitting between the two blockquoted paragraphs
+    assert "\n\n" not in body.split("Paragraph one.")[1].split("Paragraph two.")[0]
+
+
+def test_single_line_quote_unchanged_no_trailing_whitespace() -> None:
+    # Single-line quote/claim/resolution behavior must be unchanged by the
+    # new helpers, and the new per-line prefixing must not itself introduce
+    # trailing whitespace on the quote line (the pre-existing "  " spacer
+    # line between the quote and "Cites decision" is unrelated and untouched).
+    finding = make_finding(
+        decision_quote="All outbound HTTP MUST go through `src/http/client.py`.",
+        claim="calls requests.get directly",
+        suggested_resolution="use src/http/client.py instead",
+    )
+    rendered = _render_finding(finding)
+    rendered_lines = rendered.splitlines()
+
+    assert rendered_lines[0] == "- **src/service.py** (lines 10-12) — calls requests.get directly"
+    assert rendered_lines[1] == "  > All outbound HTTP MUST go through `src/http/client.py`."
+    assert rendered_lines[1] == rendered_lines[1].rstrip()
+    assert rendered_lines[3] == (
+        "  Cites decision `0007`. **Suggested resolution:** use src/http/client.py instead"
+    )

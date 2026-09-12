@@ -121,7 +121,15 @@ class ClaudeEngine:
         except json.JSONDecodeError as exc:
             raise EngineError(f"claude -p produced invalid JSON: {exc}\n{result.stdout[:2000]}") from exc
 
-        return extract_structured(raw)
+        try:
+            return extract_structured(raw)
+        except json.JSONDecodeError as exc:
+            # `raw["result"]` is supposed to conform to --json-schema, but a
+            # model that replies with prose instead of schema JSON raises
+            # here too — same failure mode as above, so give it the same
+            # clean EngineError treatment instead of an escaping traceback.
+            snippet = str(raw.get("result", raw))[:2000]
+            raise EngineError(f"claude -p returned a non-JSON result: {exc}\n{snippet}") from exc
 
     def review(self, prompt: str) -> ReviewResult:
         raw = self._run(PROMPTS_DIR / "review.md", prompt, REVIEW_SCHEMA)

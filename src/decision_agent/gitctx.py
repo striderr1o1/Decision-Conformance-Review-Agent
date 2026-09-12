@@ -26,6 +26,12 @@ class DiffContext:
     merge_base: str
     diff: str
     changed_files: list[str]
+    # True when the requested head ref didn't resolve locally or as
+    # origin/<ref> and we fell back to whatever is actually checked out
+    # (the fork-PR case handled by `_resolvable_ref`). Surfaced so
+    # `--explain` can flag it -- silently diffing the wrong commits would
+    # otherwise be invisible.
+    head_fell_back: bool = False
 
     @property
     def diff_bytes(self) -> int:
@@ -78,14 +84,24 @@ def _ref_exists(repo_root: Path, ref: str) -> bool:
     return result.returncode == 0
 
 
-def _resolvable_base(repo_root: Path, base: str) -> str:
-    """`base` might be a bare branch name that only exists as `origin/<base>`
-    in CI (no local tracking branch). Prefer whichever actually resolves."""
-    for candidate in (base, f"origin/{base}"):
+def _resolvable_ref(repo_root: Path, ref: str, *, fallback: str | None = None) -> str:
+    """`ref` might be a bare branch name that only exists as `origin/<ref>`
+    in CI (no local tracking branch) — `actions/checkout` on a `pull_request`
+    event leaves a detached HEAD and never creates a local branch for either
+    side. Prefer whichever actually resolves.
+
+    `fallback` covers the head side specifically: on a fork PR, GitHub
+    withholds the fork's ref from `origin` too, so neither `<ref>` nor
+    `origin/<ref>` exists. In that case the right thing to diff is whatever
+    is actually checked out — `HEAD` — not a hard failure that would fail
+    the Action on every fork PR."""
+    for candidate in (ref, f"origin/{ref}"):
         if _ref_exists(repo_root, candidate):
             return candidate
+    if fallback is not None:
+        return fallback
     raise GitError(
-        f"base ref {base!r} does not resolve locally or as origin/{base}; "
+        f"ref {ref!r} does not resolve locally or as origin/{ref}; "
         "did you check out with fetch-depth: 0?"
     )
 
@@ -95,8 +111,16 @@ def get_diff_context(
     base: str | None = None,
     head: str | None = None,
 ) -> DiffContext:
-    resolved_base = _resolvable_base(repo_root, resolve_base_ref(base))
-    resolved_head = resolve_head_ref(head)
+    resolved_base = _resolvable_ref(repo_root, resolve_base_ref(base))
+    head_ref = resolve_head_ref(head)
+    # HEAD always resolves (it's whatever is checked out) so it never needs
+    # the origin/<ref> dance or the fallback — only a bare branch name does.
+    if head_ref == "HEAD":
+        resolved_head = "HEAD"
+        head_fell_back = False
+    else:
+        resolved_head = _resolvable_ref(repo_root, head_ref, fallback="HEAD")
+        head_fell_back = resolved_head == "HEAD"
 
     merge_base = _run_git(repo_root, ["merge-base", resolved_base, resolved_head]).strip()
 
@@ -117,4 +141,5 @@ def get_diff_context(
         merge_base=merge_base,
         diff=diff,
         changed_files=changed_files,
+        head_fell_back=head_fell_back,
     )
