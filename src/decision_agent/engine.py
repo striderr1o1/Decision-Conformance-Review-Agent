@@ -27,7 +27,7 @@ from decision_agent.schema import (
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 CREDENTIAL_ENV_VARS = ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY")
 DEFAULT_TIMEOUT_SECONDS = 600
-ALLOWED_TOOLS = "Read,Grep,Glob,Bash"  # so the engine can run the target's tests
+ALLOWED_TOOLS = "Read,Grep,Glob"
 
 
 class EngineError(RuntimeError):
@@ -156,5 +156,3 @@ class StubEngine:
 
     def propose(self, prompt: str) -> ProposeResult:
         return ProposeResult(proposals=[])
-
-# smoke: second push to test sticky-comment update
