@@ -1,0 +1,7 @@
+decisions_dir      = "decisions"
+model              = "sonnet"
+severity_threshold = "medium"
+max_diff_bytes     = 400_000
+propose_decisions  = true
+label              = "decision-conflict"
+ignore_paths       = ["**/*.lock", "dist/**", "**/*.min.js"]

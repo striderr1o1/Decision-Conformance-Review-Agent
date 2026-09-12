@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "decision-agent"
+version = "0.1.0"
+description = "Decision-conformance review agent for GitHub pull requests"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.6",
+    "PyYAML>=6.0",
+    "tomli>=2.0; python_version < '3.11'",
+    "click>=8.1",
+]
+
+[project.scripts]
+decision-agent = "decision_agent.cli:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+markers = [
+    "live: exercises the real `claude` CLI; excluded by default",
+]
+addopts = "-m 'not live'"
+testpaths = ["tests"]
